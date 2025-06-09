@@ -47,6 +47,10 @@
             <th>업종</th>
             <th>현재가</th>
             <th>RS</th>
+            <th>BB</th>
+            <th>low_volume</th>
+            <th>is_contracting</th>
+            <th>VCP</th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -122,6 +126,10 @@
                 업종: stock.업종명,
                 현재가: Number(stock.현재가).toLocaleString(),
                 RS: Number(stock.Mansfield_RS).toFixed(1),
+                BB: Number(stock.bb).toFixed(1),
+                low_volume: stock.low_volume,
+                is_contracting: stock.is_contracting,
+                VCP: stock.vcp_ready,
                 fullData: stock, // 상세 데이터 저장
               }));
 
@@ -140,10 +148,44 @@
                     data: "RS",
                     render: function (data, type, row) {
                       const val = parseFloat(data);
-                      const colorClass = val >= 80 ? "text-success" : "text-secondary";
+                      let colorClass = "text-muted"; // 기본: 0~10
+
+                      if (val < 0) {
+                        colorClass = "text-danger fw-bold"; // 약세
+                      } else if (val >= 30) {
+                        colorClass = "text-success fw-bold"; // 강세
+                      } else if (val >= 10) {
+                        colorClass = "text-warning fw-bold"; // 긍정
+                      }
+
                       return `<span class="${colorClass} fw-bold">${val}</span>`;
                     },
                   },
+                  { data: "BB" },
+                  { 
+                    data: "low_volume",
+                    render: function (data) {
+                      return data
+                        ? `<span class="text-success fw-bold">True</span>`
+                        : `<span class="text-secondary fw-bold">False</span>`;
+                    }, 
+                  },
+                  { 
+                    data: "is_contracting",
+                    render: function (data) {
+                      return data
+                        ? `<span class="text-success fw-bold">True</span>`
+                        : `<span class="text-secondary fw-bold">False</span>`;
+                    }, 
+                  },
+                  { 
+                    data: "VCP",
+                    render: function (data) {
+                      return data
+                        ? `<span class="text-success fw-bold">True</span>`
+                        : `<span class="text-secondary fw-bold">False</span>`;
+                    }, 
+                  }
                 ],
               });
 

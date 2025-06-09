@@ -1,15 +1,7 @@
-# minervini/main.py
-import asyncio 
 import websockets
 import json
 from loguru import logger
-import pandas as pd
-
-from config import socket_url
-from core.utils import KiwoomTR
-from core.rs_calculator import add_mansfield_rs
-from core.fundamentals import add_fundamental
-
+from core.tr_requests import KiwoomTR
 
 
 class WebSocketClient:
@@ -27,10 +19,10 @@ class WebSocketClient:
 	# WebSocket 서버에 연결합니다.
 	async def connect(self):
 		try:
+			logger.info("서버와 연결을 시도 중입니다.")
 			self.websocket = await websockets.connect(self.uri)
 			self.connected = True
-			logger.info("서버와 연결을 시도 중입니다.")
-
+			
 			# 로그인 패킷
 			param = {
 				'trnm': 'LOGIN',
@@ -155,53 +147,3 @@ class WebSocketClient:
 			self.connected = False
 			logger.info('Disconnected from WebSocket server')
 			
-
-async def fetch_industry_name(kiwoom_tr, stock_code, semaphore):
-    async with semaphore:
-        params = {'stk_cd': stock_code}
-        loop = asyncio.get_event_loop()
-        up_name, has_next, next_key = await loop.run_in_executor(
-            None,
-            lambda: kiwoom_tr.fn_ka10100(data=params)
-        )
-        await asyncio.sleep(1)  # 제한 속도 유지
-        return up_name
-
-async def add_industry_names_parallel(df):
-	logger.info("업종명 조회")
-	kiwoom_tr = KiwoomTR()
-	semaphore = asyncio.Semaphore(15)  # 동시에 20개만 호출 허용
-
-	tasks = [fetch_industry_name(kiwoom_tr, code, semaphore) for code in df['종목코드']]
-	up_names = await asyncio.gather(*tasks)
-	df['업종명'] = up_names
-	return df
-
-async def main():
-	# WebSocketClient 전역 변수 선언
-	websocket_client = WebSocketClient(socket_url)
-
-	# WebSocket 클라이언트를 백그라운드에서 실행합니다.
-	receive_task = asyncio.create_task(websocket_client.run())
-
-	# 실시간 항목 등록
-	await asyncio.sleep(1)
-	await websocket_client.send_message({ 
-		'trnm': 'CNSRLST', # TR명
-	})
-
-	# 수신 작업이 종료될 때까지 대기
-	await asyncio.sleep(1)
-	await websocket_client.disconnect()
-	await receive_task
-	
-	df = pd.DataFrame(websocket_client.condition_results)
-	df = await add_industry_names_parallel(df)	
-	df = add_mansfield_rs(df)
-	# df = add_fundamental(df)
-
-	return df
-
-# asyncio로 프로그램을 실행합니다.
-if __name__ == '__main__':
-	asyncio.run(main())

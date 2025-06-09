@@ -12,23 +12,21 @@ def add_mansfield_rs(df, market_code='KS11', ma_length=52):
     
     codes = df['종목코드'].tolist()
     
-    df_list = [fdr.DataReader(code, start, end)[['Close']].resample('W').last() for code in codes]
+    df_list = [fdr.DataReader(code, start, end)[['Close']].resample('D').last() for code in codes]
     stock_df = pd.concat(df_list, axis=1)
     stock_df.columns = [code for code in codes]
-    market_df = fdr.DataReader(market_code, start, end)[["Close"]].resample("W").last()
+    market_df = fdr.DataReader(market_code, start, end)[['Close']].resample('D').last()
     market_df.rename(columns={'Close': '지수'}, inplace=True)
-    combined = stock_df.join(market_df, how='inner')
+    combined = stock_df.join(market_df, how='inner').dropna()
     
     mansfield_dict = {}
     for code in stock_df.columns:
         rs = (combined[code] / combined['지수']) * 100
-        zero_line = SMAIndicator(rs, window=ma_length).sma_indicator()
-        mansfield = ((rs / zero_line) - 1) * 100
-        mansfield_dict[code] = mansfield.iloc[-1] if not mansfield.isna().all() else None
+        # zero_line = SMAIndicator(rs, window=ma_length).sma_indicator()
+        zero_line = rs.rolling(window=ma_length).mean()
+        mansfield = ((rs.iloc[-1] / zero_line.iloc[-1]) - 1) * 100
+        mansfield_dict[code] = round(mansfield, 2)
         
     df['Mansfield_RS'] = df['종목코드'].map(mansfield_dict)
     return df
 
-
-if __name__ == '__main__':
-    add_mansfield_rs(['000150', '005930', '000660'])
