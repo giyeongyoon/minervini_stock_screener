@@ -2,6 +2,9 @@ import backtrader as bt
 import numpy as np
 from scipy.stats import linregress
 from scipy.signal import find_peaks
+import datetime
+from typing import Optional
+import pytz
 
 
 class TrendTemplate(bt.Indicator):
@@ -43,7 +46,7 @@ class TrendTemplate(bt.Indicator):
             x = np.arange(len(sma200_array))
             slope, _, _, _, _ = linregress(x, sma200_array)
             cond7 = slope > 0
-        self.lines.check_trend[0] = int(all([cond1, cond2, cond3, cond4, cond5, cond6, cond7]))
+        self.lines.check_trend[0] = int(all([cond2, cond3, cond4, cond7]))
 
 
 class MansfieldRS(bt.Indicator):
@@ -59,47 +62,82 @@ class MansfieldRS(bt.Indicator):
         self.lines.mansfield_rs[0] = (self.ratio[0] / self.zero_line[0] - 1) * 100
      
 
-class VCP(bt.Indicator):
-    lines = ('check_vcp',)
-    params = (('contraction_threshold', 0.1),)
+# class VCP(bt.Indicator):
+#     lines = ('check_vcp',)
+#     params = (('contraction_threshold', 0.1),)
     
-    def __init__(self):
-        self.addminperiod(100)
+#     def __init__(self):
+#         self.addminperiod(100)
         
-    def next(self):
-        closes = np.array(self.data.close.get(size=100))
-        highs = np.array(self.data.high.get(size=100))
-        lows = np.array(self.data.low.get(size=100))
-        volumes = np.array(self.data.volume.get(size=100))
+#     def next(self):
+#         closes = np.array(self.data.close.get(size=100))
+#         highs = np.array(self.data.high.get(size=100))
+#         lows = np.array(self.data.low.get(size=100))
+#         volumes = np.array(self.data.volume.get(size=100))
         
-        if len(closes) < 100:
-            self.lines.check_vcp[0] = 0
-            return
+#         if len(closes) < 100:
+#             self.lines.check_vcp[0] = 0
+#             return
         
-        peaks, _ = find_peaks(closes, distance=7)
-        troughs, _ = find_peaks(-closes, distance=7)
-        swing_points = sorted(list(peaks) + list(troughs))
+#         peaks, _ = find_peaks(closes, distance=7)
+#         troughs, _ = find_peaks(-closes, distance=7)
+#         swing_points = sorted(list(peaks) + list(troughs))
         
-        if len(swing_points) < 3:
-            self.lines.check_vcp[0] = 0
-            return
+#         if len(swing_points) < 3:
+#             self.lines.check_vcp[0] = 0
+#             return
         
-        contractions = []
-        for i in range(2, len(swing_points)):
-            start = swing_points[i-2]
-            end = swing_points[i]
-            high = highs[start:end].max()
-            low = lows[start:end].min()
-            height = (high - low)/high
-            contractions.append(height)
+#         contractions = []
+#         for i in range(2, len(swing_points)):
+#             start = swing_points[i-2]
+#             end = swing_points[i]
+#             high = highs[start:end].max()
+#             low = lows[start:end].min()
+#             height = (high - low)/high
+#             contractions.append(height)
             
-        contraction_count = sum([contractions[i] > contractions[i+1] for i in range(len(contractions) - 1)])
-        last_contraction = contractions[-1] if contractions else 1.0
+#         contraction_count = sum([contractions[i] > contractions[i+1] for i in range(len(contractions) - 1)])
+#         last_contraction = contractions[-1] if contractions else 1.0
         
-        contraction_check = contraction_count >= 3 and last_contraction < self.p.contraction_threshold
-        volume_check = volumes[-1] < np.mean(volumes[-50:])
+#         contraction_check = contraction_count >= 3 and last_contraction < self.p.contraction_threshold
+#         volume_check = volumes[-1] < np.mean(volumes[-50:])
         
-        self.lines.check_vcp[0] = int(contraction_check and volume_check)
+#         self.lines.check_vcp[0] = int(contraction_check and volume_check)
+
+class VCP(bt.Indicator):
+    lines = ('vcp_signal',)
+    params = dict(
+        vol_lookback_short=5,
+        vol_lookback_long=20,
+        volume_lookback_short=5,
+        volume_lookback_long=20,
+        breakout_lookback=20,
+        vol_shrink_thresh=0.8,
+        volume_shrink_thresh=0.7,
+    )
+
+    def __init__(self):
+        # alias
+        close = self.data.close
+        volume = self.data.volume
+        
+        # 표준편차 기반 변동성 수축
+        self.vol_now = bt.ind.StdDev(close, period=self.p.vol_lookback_short)
+        self.vol_prev = bt.ind.StdDev(close(-self.p.vol_lookback_short), period=self.p.vol_lookback_long - self.p.vol_lookback_short)
+        
+        # 거래량 감소
+        self.vol_avg_now = bt.indicators.SimpleMovingAverage(volume, period=self.p.volume_lookback_short)
+        self.vol_avg_prev = bt.indicators.SimpleMovingAverage(volume(-self.p.volume_lookback_short), period=self.p.volume_lookback_long - self.p.volume_lookback_short)
+        
+        # 최근 고점
+        self.highest = bt.ind.Highest(close(-1), period=self.p.breakout_lookback)
+
+    def next(self):
+        vol_shrunk = self.vol_now[0] < self.vol_prev[0] * self.p.vol_shrink_thresh
+        volume_shrunk = self.vol_avg_now[0] < self.vol_avg_prev[0] * self.p.volume_shrink_thresh
+        breakout = self.data.close[0] > self.highest[0]
+
+        self.lines.vcp_signal[0] = int(vol_shrunk and volume_shrunk and breakout)
         
         
 class Breakout(bt.Indicator):
@@ -127,3 +165,75 @@ class Breakout(bt.Indicator):
         volume_surge = current_vol > avg_vol * self.p.volume_multiplier
 
         self.lines.breakout_signal[0] = int(breakout and volume_surge)
+        # self.lines.breakout_signal[0] = int(breakout)
+        
+        
+class VwapIntradayIndicator(bt.Indicator):
+    """
+    Volume Weighted Average Price (VWAP) indicator for intraday trading.
+    """
+
+    lines = ("vwap_intraday",)
+    params = {"timezone": "America/New_York"}
+    plotinfo = {"subplot": False}
+    plotlines = {"vwap_intraday": {"color": "blue"}}
+
+    def __init__(self) -> None:
+        self.hlc = (self.data.high + self.data.low + self.data.close) / 3.0
+
+        self.current_date: Optional[datetime.date] = None
+        self.previous_date_index: int = -1
+
+    def next(self) -> None:
+        current_date = (
+            pytz.utc.localize(self.data.datetime.datetime()).astimezone(pytz.timezone(self.p.timezone)).date()
+        )
+        len_self: int = len(self)
+
+        if self.current_date != current_date:
+            self.current_date = current_date
+            self.previous_date_index = len_self - 1
+
+        volumes = self.data.volume.get(size=len_self - self.previous_date_index)
+        hlc = self.hlc.get(size=len_self - self.previous_date_index)
+
+        numerator = sum(hlc[i] * volumes[i] for i in range(len(volumes)))
+        
+        vwap_value = numerator / sum(volumes) if sum(volumes) else self.lines.vwap_intraday[-1]
+        self.lines.vwap_intraday[0] = vwap_value
+
+class VwapIntradayIndicator2(bt.Indicator):
+    lines = ('vwap_intraday',)
+    plotinfo = dict(subplot=False)
+
+    def __init__(self):
+        self.addminperiod(1)
+        self.hlc = (self.data.high + self.data.low + self.data.close) / 3.0
+        self.volume_sum = 0.0
+        self.vwap_sum = 0.0
+        self.current_date = None
+
+    def next(self):
+        dt = self.data.datetime.datetime(0).date()
+        if self.current_date != dt:
+            self.current_date = dt
+            self.volume_sum = 0.0
+            self.vwap_sum = 0.0
+        v = self.data.volume[0]
+        hlc = self.hlc[0]
+        self.vwap_sum += hlc * v
+        self.volume_sum += v
+        self.lines.vwap_intraday[0] = self.vwap_sum / self.volume_sum if self.volume_sum else self.data.close[0]
+        
+        
+class BollingerBands(bt.Indicator):
+    lines = ("top", "bot", "mid", "width", "percent_b")
+    params = dict(period=20, dev=2)
+
+    def __init__(self):
+        self.addminperiod(self.p.period)
+        self.lines.mid = bt.indicators.SimpleMovingAverage(self.data.close, period=self.p.period)
+        self.lines.top = self.lines.mid + self.p.dev * bt.indicators.StandardDeviation(self.data.close, period=self.p.period)
+        self.lines.bot = self.lines.mid - self.p.dev * bt.indicators.StandardDeviation(self.data.close, period=self.p.period)
+        self.lines.width = self.lines.top - self.lines.bot
+        self.lines.percent_b = (self.data.close - self.lines.bot) / (self.lines.top - self.lines.bot)

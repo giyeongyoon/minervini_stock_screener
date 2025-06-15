@@ -7,8 +7,8 @@ DIR = 'data'
 os.makedirs(DIR, exist_ok=True)
 
 # 날짜 범위
-START_DATE = '2023-01-01'
-END_DATE = '2025-06-05'
+START_DATE = '2020-01-01'
+END_DATE = '2025-01-01'
 
 def fetch_stock_data(ticker):
     try:
@@ -41,7 +41,11 @@ def main():
         if not success:
             fail_list.append(ticker)
         time.sleep(0.5)  # API 과부하 방지
-
+        
+    success = fetch_stock_data('KS11')
+    if not success:
+        fail_list.append('KS11')
+        
     print("=== 실패 종목 리스트 ===")
     print(fail_list)
 
